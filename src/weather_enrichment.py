@@ -7,7 +7,7 @@ import random
 # LOAD DATASET
 # ===============================
 
-df = pd.read_csv("Added_Holiday_Features_dataset.csv")
+df = pd.read_csv("Data/Added_Holiday_Features_dataset.csv")
 
 print("Dataset Loaded")
 print("Shape:", df.shape)
@@ -93,7 +93,7 @@ print("Weather data collected")
 # SAVE WEATHER CACHE
 # ===============================
 
-weather_df.to_csv("weather_cached.csv", index=False)
+weather_df.to_csv("Data/weather_cached.csv", index=False)
 
 print("Weather cached")
 
@@ -161,7 +161,7 @@ df["bad_weather_flag_api"] = (
 # SAVE DATASET
 # ===============================
 
-df.to_csv("dataset_with_weather_features.csv",index=False)
+df.to_csv("Data/dataset_with_weather_features.csv",index=False)
 
 print("Weather enrichment completed")
 print("New features created:")
