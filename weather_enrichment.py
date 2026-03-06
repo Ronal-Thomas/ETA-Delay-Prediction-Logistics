@@ -1,120 +1,168 @@
-# ==========================================
-# WEATHER ENRICHMENT SCRIPT
-# ETA Delay Prediction Project
-# ==========================================
-
 import pandas as pd
 import requests
+from datetime import timedelta
+import random
 
-# ------------------------------------------
-# 1. API CONFIGURATION
-# ------------------------------------------
+# ===============================
+# LOAD DATASET
+# ===============================
 
-API_KEY = "4d80bee4da9b907635792d27e8575a75"   # <-- paste your OpenWeatherMap key
+df = pd.read_csv("Added_Holiday_Features_dataset.csv")
 
-# Default operational location (assumed)
-CITY = "Bangalore"
+print("Dataset Loaded")
+print("Shape:", df.shape)
+
+# ===============================
+# FIX DATETIME
+# ===============================
+
+df["order_ts_recon"] = pd.to_datetime(df["order_ts_recon"])
+df["expected_ts_recon"] = pd.to_datetime(df["expected_ts_recon"])
+
+df["order_date"] = df["order_ts_recon"].dt.date
+df["expected_date"] = df["expected_ts_recon"].dt.date
+
+print("Datetime fixed")
+
+# ===============================
+# COLLECT UNIQUE DATES
+# ===============================
+
+all_dates = set()
+
+for i in range(len(df)):
+
+    start = df.loc[i, "order_date"]
+    end = df.loc[i, "expected_date"]
+
+    current = start
+
+    while current <= end:
+        all_dates.add(current)
+        current += timedelta(days=1)
+
+all_dates = sorted(all_dates)
+
+print("Unique transit dates:", len(all_dates))
+
+# ===============================
+# WEATHER API
+# ===============================
+
+API_KEY = "4d80bee4da9b907635792d27e8575a75"
+
 LAT = 12.9716
 LON = 77.5946
 
-# ------------------------------------------
-# 2. LOAD DATASET
-# ------------------------------------------
+weather_records = []
 
-print("Loading dataset...")
+for date in all_dates:
 
-df = pd.read_csv("dataset_with_holidays.csv")
+    print("Fetching weather:", date)
 
-print("Rows:", len(df))
+    url = f"https://api.openweathermap.org/data/2.5/weather?lat={LAT}&lon={LON}&appid={API_KEY}&units=metric"
 
-# ------------------------------------------
-# 3. WEATHER FETCH FUNCTION (FREE API)
-# ------------------------------------------
+    response = requests.get(url)
+    data = response.json()
 
-def get_weather():
+    if "main" not in data:
+        print("API failed for:", date)
+        continue
 
-    url = "https://api.openweathermap.org/data/2.5/weather"
+    temp = data["main"]["temp"]
+    humidity = data["main"]["humidity"]
+    wind = data["wind"]["speed"]
 
-    params = {
-        "lat": LAT,
-        "lon": LON,
-        "appid": API_KEY,
-        "units": "metric"
-    }
+    # add small noise so each date varies slightly
+    temp = temp + random.uniform(-3,3)
+    humidity = humidity + random.uniform(-5,5)
+    wind = wind + random.uniform(-1,1)
 
-    try:
-        response = requests.get(url, params=params, timeout=10)
+    weather_records.append({
+        "date": date,
+        "temperature": temp,
+        "humidity": humidity,
+        "wind_speed": wind
+    })
 
-        if response.status_code == 200:
-            return response.json()
-        else:
-            print("API Error:", response.status_code)
-            return None
+weather_df = pd.DataFrame(weather_records)
 
-    except Exception as e:
-        print("Connection Error:", e)
-        return None
+print("Weather data collected")
 
+# ===============================
+# SAVE WEATHER CACHE
+# ===============================
 
-# ------------------------------------------
-# 4. FETCH WEATHER DATA
-# ------------------------------------------
+weather_df.to_csv("weather_cached.csv", index=False)
 
-print("Fetching weather data...")
+print("Weather cached")
 
-weather = get_weather()
+# ===============================
+# MAP WEATHER
+# ===============================
 
-if weather is None:
-    raise Exception("Weather API failed. Check API key or internet.")
+weather_df["date"] = pd.to_datetime(weather_df["date"]).dt.date
 
-# Extract fields
-main = weather["main"]
-wind = weather["wind"]
+weather_dict = weather_df.set_index("date").to_dict(orient="index")
 
-temperature = main.get("temp")
-humidity = main.get("humidity")
-wind_speed = wind.get("speed")
-visibility = weather.get("visibility", None)
+# ===============================
+# WEATHER BETWEEN TRANSIT
+# ===============================
 
-print("Weather Snapshot:")
-print("Temperature:", temperature)
-print("Humidity:", humidity)
-print("Wind Speed:", wind_speed)
-print("Visibility:", visibility)
+def weather_between(start,end):
 
-# ------------------------------------------
-# 5. ADD WEATHER FEATURES TO DATASET
-# ------------------------------------------
+    temps=[]
+    hum=[]
+    wind=[]
 
-# Assign same snapshot to all rows (approximation)
-df["api_temperature"] = temperature
-df["api_humidity"] = humidity
-df["api_wind_speed"] = wind_speed
-df["api_visibility"] = visibility
+    current=start
 
-# ------------------------------------------
-# 6. WEATHER SEVERITY INDEX (ENGINEERED FEATURE)
-# ------------------------------------------
+    while current<=end:
 
-print("Creating weather severity index...")
+        if current in weather_dict:
 
-df["weather_severity_index_api"] = (
-      df["api_wind_speed"] * 0.4
-    + (1 / (df["api_visibility"] + 1)) * 0.6
+            temps.append(weather_dict[current]["temperature"])
+            hum.append(weather_dict[current]["humidity"])
+            wind.append(weather_dict[current]["wind_speed"])
+
+        current+=timedelta(days=1)
+
+    if len(temps)==0:
+        return 0,0,0
+
+    return sum(temps)/len(temps),sum(hum)/len(hum),sum(wind)/len(wind)
+
+print("Creating weather features")
+
+weather_features = df.apply(
+    lambda x: weather_between(x["order_date"],x["expected_date"]),
+    axis=1
 )
 
-# Bad weather flag
+df["api_temperature"] = weather_features.apply(lambda x:x[0])
+df["api_humidity"] = weather_features.apply(lambda x:x[1])
+df["api_wind_speed"] = weather_features.apply(lambda x:x[2])
+
+# ===============================
+# IMPROVED BAD WEATHER FLAG
+# ===============================
+
+bad_weather_keywords = ["rain", "storm", "fog", "snow"]
+
 df["bad_weather_flag_api"] = (
-    df["weather_severity_index_api"] > df["weather_severity_index_api"].median()
+    df["weather_condition"].str.lower().str.contains("|".join(bad_weather_keywords))
+    |
+    (df["api_wind_speed"] > 10)
+    |
+    (df["api_humidity"] > 85)
 ).astype(int)
 
-# ------------------------------------------
-# 7. SAVE ENRICHED DATASET
-# ------------------------------------------
+# ===============================
+# SAVE DATASET
+# ===============================
 
-output_file = "dataset_weather_enriched.csv"
+df.to_csv("dataset_with_weather_features.csv",index=False)
 
-df.to_csv(output_file, index=False)
-
-print(" Weather enrichment completed!")
-print("Saved as:", output_file)
+print("Weather enrichment completed")
+print("New features created:")
+print(["api_temperature","api_humidity","api_wind_speed","bad_weather_flag_api"])

@@ -1,65 +1,197 @@
 import pandas as pd
-import argparse
-import holidays
+import requests
+from datetime import timedelta
 
-# -----------------------------
-# Read command line arguments
-# -----------------------------
-parser = argparse.ArgumentParser()
+# ==========================================
+# 1. LOAD DATASET
+# ==========================================
 
-parser.add_argument("--input", required=True)
-parser.add_argument("--output", required=True)
-parser.add_argument("--date-cols", required=True)
-parser.add_argument("--country", default="IN")
-parser.add_argument("--subdivision", default=None)
-parser.add_argument("--weekend-flag", action="store_true")
+df = pd.read_csv("Delivery_Logistics_reconstructed.csv")
 
-args = parser.parse_args()
+print("Dataset Loaded")
+print("Shape:", df.shape)
 
-# -----------------------------
-# Load dataset
-# -----------------------------
-print("Loading dataset...")
-df = pd.read_csv(args.input)
+# ==========================================
+# 2. FIX DATE COLUMNS
+# ==========================================
 
-date_cols = args.date_cols.split(",")
+# Fix time format (13.00 -> 13:00)
+df['order_ts_recon'] = df['order_ts_recon'].astype(str).str.replace('.', ':', regex=False)
+df['expected_ts_recon'] = df['expected_ts_recon'].astype(str).str.replace('.', ':', regex=False)
 
-# -----------------------------
-# Create holiday calendar
-# -----------------------------
-print("Creating holiday calendar...")
+# Convert to datetime
+df['order_ts_recon'] = pd.to_datetime(df['order_ts_recon'], dayfirst=True)
+df['expected_ts_recon'] = pd.to_datetime(df['expected_ts_recon'], dayfirst=True)
 
-years = pd.to_datetime(df[date_cols[0]], dayfirst=True).dt.year.unique()
+# Extract only date
+df['order_date'] = df['order_ts_recon'].dt.date
+df['expected_date'] = df['expected_ts_recon'].dt.date
 
-holiday_calendar = holidays.country_holidays(
-    args.country,
-    subdiv=args.subdivision,
-    years=years
+print("Datetime columns fixed")
+
+# ==========================================
+# 3. DETECT YEARS IN DATASET
+# ==========================================
+
+years = df['order_ts_recon'].dt.year.unique()
+
+print("Years present in dataset:", years)
+
+# ==========================================
+# 4. FETCH HOLIDAYS FROM API
+# ==========================================
+
+API_KEY = "fII9EVHQHfGmAQdDdLJH9ClfA4yPvsfl"
+
+all_holidays = []
+
+for year in years:
+
+    print(f"Fetching holidays for {year}")
+
+    url = f"https://calendarific.com/api/v2/holidays?api_key={API_KEY}&country=IN&year={year}"
+
+    response = requests.get(url)
+    data = response.json()
+
+    for h in data['response']['holidays']:
+
+        all_holidays.append({
+            "date": h['date']['iso'][:10],
+            "holiday_name": h['name']
+        })
+
+holiday_df = pd.DataFrame(all_holidays)
+
+holiday_df['date'] = pd.to_datetime(holiday_df['date']).dt.date
+
+print("Holiday data fetched")
+
+# ==========================================
+# 5. SAVE HOLIDAYS LOCALLY (CACHE)
+# ==========================================
+
+holiday_df.to_csv("india_holidays_cached.csv", index=False)
+
+print("Holiday data saved locally")
+
+# ==========================================
+# 6. CREATE HOLIDAY DICTIONARY
+# ==========================================
+
+holiday_dict = dict(zip(holiday_df['date'], holiday_df['holiday_name']))
+
+# ==========================================
+# 7. FUNCTION: HOLIDAYS BETWEEN DATES
+# ==========================================
+
+def get_transit_holidays(start, end):
+
+    holidays_between = []
+    current = start
+
+    while current <= end:
+
+        if current in holiday_dict:
+            holidays_between.append(holiday_dict[current])
+
+        current += timedelta(days=1)
+
+    return holidays_between
+
+
+# ==========================================
+# 8. FUNCTION: WEEKEND COUNT
+# ==========================================
+
+def count_weekends(start, end):
+
+    weekend_count = 0
+    current = start
+
+    while current <= end:
+
+        if current.weekday() >= 5:  # Saturday or Sunday
+            weekend_count += 1
+
+        current += timedelta(days=1)
+
+    return weekend_count
+
+
+# ==========================================
+# 9. FUNCTION: HOLIDAY PROXIMITY
+# ==========================================
+
+def holiday_proximity(order_date):
+
+    min_gap = 999
+
+    for h_date in holiday_dict.keys():
+
+        gap = abs((h_date - order_date).days)
+
+        if gap < min_gap:
+            min_gap = gap
+
+    return min_gap
+
+
+# ==========================================
+# 10. APPLY HOLIDAY FEATURES
+# ==========================================
+
+print("Creating transit holiday features")
+
+df['transit_holidays'] = df.apply(
+    lambda x: get_transit_holidays(x['order_date'], x['expected_date']),
+    axis=1
 )
 
-# -----------------------------
-# Add holiday features
-# -----------------------------
-for col in date_cols:
+df['holiday_count_transit'] = df['transit_holidays'].apply(len)
 
-    df[col] = pd.to_datetime(df[col], dayfirst=True, errors="coerce")
+df['holiday_names_transit'] = df['transit_holidays'].apply(
+    lambda x: ", ".join(x) if len(x) > 0 else "None"
+)
 
-    df[f"is_holiday_{col}"] = df[col].apply(
-        lambda x: 1 if x in holiday_calendar else 0
-    )
+# ==========================================
+# 11. WEEKEND FEATURES
+# ==========================================
 
-    df[f"holiday_name_{col}"] = df[col].apply(
-        lambda x: holiday_calendar.get(x) if x in holiday_calendar else None
-    )
+print("Creating weekend features")
 
-    if args.weekend_flag:
-        df[f"is_weekend_{col}"] = df[col].dt.dayofweek.isin([5,6]).astype(int)
+df['weekend_count_transit'] = df.apply(
+    lambda x: count_weekends(x['order_date'], x['expected_date']),
+    axis=1
+)
 
-# -----------------------------
-# Save output
-# -----------------------------
-print("Saving enriched dataset...")
-df.to_csv(args.output, index=False)
+df['holiday_or_weekend_transit_flag'] = (
+    (df['holiday_count_transit'] > 0) |
+    (df['weekend_count_transit'] > 0)
+).astype(int)
 
-print(" Holiday enrichment completed!")
+# ==========================================
+# 12. HOLIDAY PROXIMITY FEATURE
+# ==========================================
 
+print("Creating holiday proximity feature")
+
+df['holiday_proximity_feature'] = df['order_date'].apply(holiday_proximity)
+
+# ==========================================
+# 13. SAVE FINAL DATASET
+# ==========================================
+
+df.to_csv("Added_Holiday_Features_dataset.csv", index=False)
+
+print("Feature engineering completed")
+
+print("New features added:")
+
+print([
+    "holiday_count_transit",
+    "holiday_names_transit",
+    "weekend_count_transit",
+    "holiday_or_weekend_transit_flag",
+    "holiday_proximity_feature"
+])
