@@ -27,7 +27,7 @@ data/interim/
 data/processed/
 
 # Model files
-*.pkl
+
 *.joblib
 *.h5
 
