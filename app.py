@@ -12,7 +12,8 @@ from datetime import date
 
 st.set_page_config(
     page_title="ETA Delay Prediction",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded" 
 )
 
 # ---------------------------------------------------
@@ -94,7 +95,8 @@ st.markdown(f"""
     background: {bg_color};
     color: {text_color};
 }}
-header {{ visibility: hidden; }}
+#MainMenu {{visibility: hidden;}}
+footer {{visibility: hidden;}}
 .block-container {{ padding-top: 2rem; }}
 h1, h2, h3 {{ color: {text_color}; }}
 [data-testid="stSidebar"] {{ background: {sidebar_color}; }}
@@ -126,6 +128,7 @@ h1, h2, h3 {{ color: {text_color}; }}
     border-radius: 8px;
     height: 42px;
 }}
+
 </style>
 """, unsafe_allow_html=True)
 
