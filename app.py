@@ -119,6 +119,28 @@ h1, h2, h3 {{ color: {text_color}; }}
     font-size: 28px;
     font-weight: 700;
 }}
+[data-testid="stMetricLabel"] {{
+    color: #000000 !important;
+    font-weight: 700 !important;
+    font-size: 14px !important;
+}}
+
+/* FIX metric values */
+[data-testid="stMetricValue"] {{
+    color: #000000 !important;
+    font-weight: 800 !important;
+}}
+
+[data-testid="stAlert"] {{
+    color: #1F2937 !important;
+    font-weight: 600 !important;
+}}
+
+/* specifically for info box */
+[data-testid="stAlert"] div {{
+    color: #1F2937 !important;
+}}
+
 .stButton > button {{
     background: {accent};
     color: black;
@@ -191,6 +213,7 @@ distance_km = st.sidebar.number_input(
 package_weight_kg = st.sidebar.number_input(
     "Package Weight (kg)", min_value=1, max_value=1000, value=10
 )
+
 
 # delivery_cost is a direct input needed by regression model
 delivery_cost = st.sidebar.number_input(
@@ -336,7 +359,7 @@ p1, p2, p3 = st.columns(3)
 
 if predict_button:
 
-    # ── 1. Classification ──────────────────────────────────────────
+    # ---------------- CLASSIFICATION ----------------
     clf_df     = build_clf_input()
     clf_scaled = encode_scale(clf_df, clf_encoders, clf_scaler)
 
@@ -345,207 +368,112 @@ if predict_button:
     status_label = "Delayed ⚠️" if clf_pred == 1 else "On-Time ✅"
     risk         = prob_to_risk(delay_prob)
 
-    # ── 2. Regression ──────────────────────────────────────────────
+    # ---------------- REGRESSION ----------------
     reg_df     = build_reg_input()
     reg_scaled = encode_scale(reg_df, reg_encoders, reg_scaler)
 
     delay_hours = float(max(reg_model.predict(reg_scaled)[0], 0.0))
 
-    # ── Metrics ────────────────────────────────────────────────────
-    p1.metric("Delivery Status",   status_label)
+    # ---------------- METRICS ----------------
+    p1.metric("Delivery Status", status_label)
     p2.metric("Delay Probability", f"{delay_prob * 100:.1f}%")
-    p3.metric("Estimated Delay",   f"{delay_hours:.2f} hrs")
 
-    # ── Probability bar ────────────────────────────────────────────
+    if clf_pred == 1:
+        p3.metric("Estimated Delay", f"{delay_hours:.2f} hrs")
+    else:
+        p3.metric("Estimated Delay", "—")
+
+    # ---------------- PROGRESS ----------------
     st.write(f"**Delay Probability Indicator** — Risk: {risk}")
     st.progress(float(np.clip(delay_prob, 0.0, 1.0)))
 
-    # ── Status banner ──────────────────────────────────────────────
+    # ---------------- STATUS BANNER ----------------
     if clf_pred == 1:
         st.error(
             f"⚠️ This shipment is likely **Delayed** by approximately "
             f"**{delay_hours:.2f} hours**."
         )
     else:
-        if delay_hours > 0.5:
-            st.warning(
-                f"✅ Classified as **On-Time**, but the regression model "
-                f"estimates a possible delay of **{delay_hours:.2f} hrs**. Monitor closely."
-            )
+        if delay_prob > 0.3:
+            st.markdown(f"""
+<div style="
+    background-color:#FFF3CD;
+    color:#1F2937;
+    padding:12px 16px;
+    border-radius:8px;
+    font-weight:600;
+">
+⚠️ Slight risk detected. If delayed, it may take around 
+<b>{delay_hours:.2f} hrs</b>.
+</div>
+""", unsafe_allow_html=True)
         else:
             st.success("✅ This shipment is expected to be **On-Time**.")
 
     st.divider()
 
-    # ── Insights expander ──────────────────────────────────────────
-    with st.expander("🔍 Prediction Insights"):
+    # ---------------- INSIGHTS ----------------
+    st.subheader("📌 Key Insights")
 
-        st.markdown("#### Model Outputs")
-        st.dataframe(pd.DataFrame({
-            "Output": [
-                "Delivery Status",
-                "Delay Probability",
-                "Risk Level",
-                "Estimated Delay Hours"
-            ],
-            "Value": [
-                status_label,
-                f"{delay_prob * 100:.1f}%",
-                risk,
-                f"{delay_hours:.2f} hrs"
-            ]
-        }), use_container_width=True, hide_index=True)
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Risk Level", risk)
+    col2.metric("Peak Hour Impact", "High 🚦" if is_peak_hour else "Low ✅")
+    col3.metric("Weather Impact", "High 🌧" if bad_weather_flag_api else "Low ☀️")
 
-        st.markdown("#### Input Summary")
-        st.dataframe(pd.DataFrame({
-            "Feature": [
-                "Delivery Partner", "Package Type", "Vehicle Type",
-                "Delivery Mode", "Region", "Weather Condition",
-                "Distance (km)", "Package Weight (kg)", "Delivery Cost (₹)",
-                "Order Date", "Order Hour", "Day of Week", "Is Weekend",
-                "Bad Weather Flag", "Is Peak Hour",
-                "Distance Bucket", "Cost per KM"
-            ],
-            "Value": [
-                delivery_partner, package_type, vehicle_type,
-                delivery_mode, region, weather_condition,
-                f"{distance_km} km", f"{package_weight_kg} kg",
-                f"₹{delivery_cost:.0f}",
-                order_date.strftime("%d %b %Y"),
-                f"{order_hour:02d}:00",
-                order_date.strftime("%A"),
-                "Yes" if is_weekend else "No",
-                "Yes" if bad_weather_flag_api else "No",
-                "Yes" if is_peak_hour else "No",
-                str(distance_bucket),
-                f"{cost_per_km:.4f}"
-            ]
-        }), use_container_width=True, hide_index=True)
+    st.divider()
+
+    # ---------------- WHY ----------------
+    st.subheader("🔍 Why This Prediction?")
+
+    factors = []
+
+    if bad_weather_flag_api:
+        factors.append("🌧 Bad weather increases delay risk")
+
+    if is_peak_hour:
+        factors.append("🚦 Peak hour traffic slows delivery")
+
+    if distance_km > 300:
+        factors.append("📏 Long distance increases delay")
+
+    if cost_per_km < 2:
+        factors.append("💸 Lower cost efficiency may increase delay")
+
+    if vehicle_type in ["bike", "ev bike", "scooter"]:
+        factors.append("🏍 Two-wheelers help reduce delay in traffic")
+
+    if delivery_mode == "standard":
+        factors.append("📦 Standard delivery is slower than express")
+
+    if region == "south":
+        factors.append("📍 Region has slightly higher delay patterns")
+
+    if factors:
+        for f in factors:
+            st.write(f"- {f}")
+    else:
+        st.success("✅ All conditions are optimal for on-time delivery")
+
+    st.divider()
+
+    # ---------------- SUMMARY ----------------
+    st.subheader("📊 Final Summary")
+
+    summary_text = f"""
+**Delivery Status:** {status_label}  
+**Delay Probability:** {delay_prob * 100:.1f}%  
+"""
+
+    if clf_pred == 1:
+        summary_text += f"**Estimated Delay:** {delay_hours:.2f} hrs"
+    else:
+        summary_text += "**Estimated Delay:** Not applicable (On-Time)"
+
+    st.markdown(summary_text)
 
 else:
-
     p1.metric("Delivery Status",   "—")
     p2.metric("Delay Probability", "—")
     p3.metric("Estimated Delay",   "—")
 
-    st.info("Fill in the shipment details on the left and click **🔍 Predict Delivery Status**.")
-
-# ---------------------------------------------------
-# SCENARIO ANALYSIS
-# ---------------------------------------------------
-
-st.subheader("Scenario Delay Risk Analysis")
-
-SCENARIOS = ["Short Distance", "Base Case", "Long Distance", "Peak Hour"]
-
-clf_rows = []
-reg_rows = []
-
-for scenario in SCENARIOS:
-
-    d_km  = float(distance_km)
-    s_hour = int(order_hour)
-
-    if scenario == "Short Distance":
-        d_km = max(10.0, float(distance_km) - 30.0)
-    elif scenario == "Long Distance":
-        d_km = float(distance_km) + 50.0
-    elif scenario == "Peak Hour":
-        s_hour = (int(order_hour) + 5) % 24
-
-    # Recompute derived features for this scenario
-    s_bad_weather    = bad_weather_flag_api
-    s_is_peak        = 1 if (8 <= s_hour <= 11 or 17 <= s_hour <= 20) else 0
-    s_dist_bucket    = 0 if d_km <= 100 else (1 if d_km <= 300 else (2 if d_km <= 700 else 3))
-    s_cost_per_km    = delivery_cost / (d_km + 1)
-
-    clf_rows.append({
-        "delivery_partner":                delivery_partner,
-        "package_type":                    package_type,
-        "vehicle_type":                    vehicle_type,
-        "delivery_mode":                   delivery_mode,
-        "region":                          region,
-        "weather_condition":               weather_condition,
-        "distance_km":                     d_km,
-        "package_weight_kg":               float(package_weight_kg),
-        "api_temperature":                 api_temperature,
-        "api_humidity":                    api_humidity,
-        "api_wind_speed":                  api_wind_speed,
-        "bad_weather_flag_api":            float(s_bad_weather),
-        "holiday_or_weekend_transit_flag": float(holiday_or_weekend_transit_flag),
-        "order_hour":                      s_hour,
-        "order_dayofweek":                 int(order_dayofweek),
-        "is_weekend":                      int(is_weekend),
-    })
-
-    reg_rows.append({
-        "delivery_partner":  delivery_partner,
-        "package_type":      package_type,
-        "vehicle_type":      vehicle_type,
-        "delivery_mode":     delivery_mode,
-        "region":            region,
-        "weather_condition": weather_condition,
-        "distance_km":       d_km,
-        "package_weight_kg": float(package_weight_kg),
-        "hour":              s_hour,
-        "delivery_cost":     float(delivery_cost),
-        "bad_weather_flag_api": float(s_bad_weather),
-        "is_peak_hour":      s_is_peak,
-        "distance_bucket":   s_dist_bucket,
-        "cost_per_km":       s_cost_per_km,
-    })
-
-clf_s_scaled   = encode_scale(pd.DataFrame(clf_rows)[CLF_FEATURES], clf_encoders, clf_scaler)
-reg_s_scaled   = encode_scale(pd.DataFrame(reg_rows)[REG_FEATURES], reg_encoders, reg_scaler)
-
-scenario_probs  = clf_model.predict_proba(clf_s_scaled)[:, 1].tolist()
-scenario_delays = [float(max(x, 0)) for x in reg_model.predict(reg_s_scaled)]
-
-chart_df = pd.DataFrame({
-    "Scenario":              SCENARIOS,
-    "Delay Probability":     [round(p, 4) for p in scenario_probs],
-    "Estimated Delay (hrs)": [f"{d:.2f}" for d in scenario_delays],
-    "Risk":                  [prob_to_risk(p) for p in scenario_probs]
-})
-
-fig = px.bar(
-    chart_df,
-    x="Scenario",
-    y="Delay Probability",
-    title="Scenario-Based Delay Probability",
-    color="Delay Probability",
-    color_continuous_scale="YlOrBr",
-    hover_data=["Risk", "Estimated Delay (hrs)"],
-    range_y=[0, 1]
-)
-fig.update_layout(
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor=card_color,
-    title_font=dict(size=20, color=text_color),
-    font=dict(color=text_color, size=14),
-    xaxis_title="Scenario",
-    yaxis_title="Delay Probability",
-    coloraxis_colorbar=dict(
-        title=dict(text="Probability", font=dict(color=text_color)),
-        tickfont=dict(color=text_color)
-    )
-)
-fig.update_xaxes(showgrid=False, tickfont=dict(color=text_color),
-                 title_font=dict(color=text_color))
-fig.update_yaxes(gridcolor="rgba(120,120,120,0.2)", tickfont=dict(color=text_color),
-                 title_font=dict(color=text_color))
-
-st.plotly_chart(fig, use_container_width=True)
-
-# ---------------------------------------------------
-# MAP
-# ---------------------------------------------------
-
-st.subheader("Shipment Route Heatmap")
-st.map(pd.DataFrame({
-    "lat": [28.6, 19.0, 13.0],
-    "lon": [77.2, 72.8, 80.2]
-}))
-
-st.divider()
-st.markdown("© 2026 Logistics ETA Intelligence System")
+    st.info("Fill in details and click Predict.")
