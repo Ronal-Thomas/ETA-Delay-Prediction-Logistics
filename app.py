@@ -227,7 +227,7 @@ order_date = st.sidebar.date_input("Order Date", value=date.today())
 
 order_hour = st.sidebar.slider("Order Hour", 0, 23, 12)
 
-predict_button = st.sidebar.button("🔍 Predict Delivery Status")
+predict_button = st.sidebar.button(" Predict Delivery Status")
 
 # ---------------------------------------------------
 # DERIVED FEATURES
@@ -368,7 +368,7 @@ if predict_button:
 
     delay_prob   = float(clf_model.predict_proba(clf_scaled)[0][1])
     clf_pred     = clf_model.predict(clf_scaled)[0]
-    status_label = "Delayed ⚠️" if clf_pred == 1 else "On-Time ✅"
+    status_label = "Delayed !" if clf_pred == 1 else "On-Time "
     risk         = prob_to_risk(delay_prob)
 
     # ---------------- REGRESSION ----------------
@@ -393,7 +393,7 @@ if predict_button:
     # ---------------- STATUS BANNER ----------------
     if clf_pred == 1:
         st.error(
-            f"⚠️ This shipment is likely **Delayed** by approximately "
+            f"! This shipment is likely **Delayed** by approximately "
             f"**{delay_hours:.2f} hours**."
         )
     else:
@@ -406,61 +406,61 @@ if predict_button:
     border-radius:8px;
     font-weight:600;
 ">
-⚠️ Slight risk detected. If delayed, it may take around 
+! Slight risk detected. If delayed, it may take around 
 <b>{delay_hours:.2f} hrs</b>.
 </div>
 """, unsafe_allow_html=True)
         else:
-            st.success("✅ This shipment is expected to be **On-Time**.")
+            st.success(" This shipment is expected to be **On-Time**.")
 
     st.divider()
 
     # ---------------- INSIGHTS ----------------
-    st.subheader("📌 Key Insights")
+    st.subheader(" Key Insights")
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Risk Level", risk)
-    col2.metric("Peak Hour Impact", "High 🚦" if is_peak_hour else "Low ✅")
-    col3.metric("Weather Impact", "High 🌧" if bad_weather_flag_api else "Low ☀️")
+    col2.metric("Peak Hour Impact", "High " if is_peak_hour else "Low ")
+    col3.metric("Weather Impact", "High " if bad_weather_flag_api else "Low ")
 
     st.divider()
 
     # ---------------- WHY ----------------
-    st.subheader("🔍 Why This Prediction?")
+    st.subheader(" Why This Prediction?")
 
     factors = []
 
     if bad_weather_flag_api:
-        factors.append("🌧 Bad weather increases delay risk")
+        factors.append(" Bad weather increases delay risk")
 
     if is_peak_hour:
-        factors.append("🚦 Peak hour traffic slows delivery")
+        factors.append(" Peak hour traffic slows delivery")
 
     if distance_km > 300:
-        factors.append("📏 Long distance increases delay")
+        factors.append(" Long distance increases delay")
 
     if cost_per_km < 2:
-        factors.append("💸 Lower cost efficiency may increase delay")
+        factors.append(" Lower cost efficiency may increase delay")
 
     if vehicle_type in ["bike", "ev bike", "scooter"]:
-        factors.append("🏍 Two-wheelers help reduce delay in traffic")
+        factors.append(" Two-wheelers help reduce delay in traffic")
 
     if delivery_mode == "standard":
-        factors.append("📦 Standard delivery is slower than express")
+        factors.append(" Standard delivery is slower than express")
 
     if region == "south":
-        factors.append("📍 Region has slightly higher delay patterns")
+        factors.append(" Region has slightly higher delay patterns")
 
     if factors:
         for f in factors:
             st.write(f"- {f}")
     else:
-        st.success("✅ All conditions are optimal for on-time delivery")
+        st.success(" All conditions are optimal for on-time delivery")
 
     st.divider()
 
     # ---------------- SUMMARY ----------------
-    st.subheader("📊 Final Summary")
+    st.subheader(" Final Summary")
 
     summary_text = f"""
 **Delivery Status:** {status_label}  
