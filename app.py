@@ -421,7 +421,7 @@ if predict_button:
     col1, col2, col3 = st.columns(3)
     col1.metric("Risk Level", risk)
     col2.metric("Peak Hour Impact", "High " if is_peak_hour else "Low ")
-    col3.metric("Weather Impact", "High " if bad_weather_flag_api else "Low ")
+    col3.metric("Weather Impact", "High "  if bad_weather_flag_api else "Low ")
 
     st.divider()
 
