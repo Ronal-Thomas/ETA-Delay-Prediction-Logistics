@@ -170,10 +170,14 @@ st.markdown(
 )
 st.divider()
 
+
+
 # ---------------------------------------------------
 # SIDEBAR — USER INPUTS
 # Only collect what the user knows; everything else is derived.
 # ---------------------------------------------------
+if st.sidebar.button("Bulk Prediction (CSV)"):
+    st.session_state.show_bulk = True
 
 st.sidebar.title("Shipment Details")
 
@@ -341,142 +345,284 @@ def prob_to_risk(prob):
 # ---------------------------------------------------
 # KPI PANEL  (always visible)
 # ---------------------------------------------------
+# 👉 Show manual section ONLY if bulk not clicked
+if not st.session_state.get("show_bulk"):
+    st.subheader("Operational Overview")
 
-st.subheader("Operational Overview")
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Distance",    f"{distance_km} km")
+    k2.metric("Order Hour",  f"{order_hour:02d}:00")
+    k3.metric("Weather",     weather_condition.capitalize())
+    k4.metric("Order Day",   order_date.strftime("%A, %d %b %Y"))
 
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("Distance",    f"{distance_km} km")
-k2.metric("Order Hour",  f"{order_hour:02d}:00")
-k3.metric("Weather",     weather_condition.capitalize())
-k4.metric("Order Day",   order_date.strftime("%A, %d %b %Y"))
+    st.divider()
+
+
+
+    # ---------------------------------------------------
+    # PREDICTION PANEL
+    # ---------------------------------------------------
+
+    st.subheader("Prediction Result")
+
+    p1, p2, p3 = st.columns(3)
+
+    if predict_button:
+        
+
+        # ---------------- CLASSIFICATION ----------------
+        clf_df     = build_clf_input()
+        clf_scaled = encode_scale(clf_df, clf_encoders, clf_scaler)
+
+        delay_prob   = float(clf_model.predict_proba(clf_scaled)[0][1])
+        clf_pred     = clf_model.predict(clf_scaled)[0]
+        status_label = "Delayed !" if clf_pred == 1 else "On-Time "
+        risk         = prob_to_risk(delay_prob)
+
+        # ---------------- REGRESSION ----------------
+        reg_df     = build_reg_input()
+        reg_scaled = encode_scale(reg_df, reg_encoders, reg_scaler)
+
+        delay_hours = float(max(reg_model.predict(reg_scaled)[0], 0.0))
+
+        # ---------------- METRICS ----------------
+        p1.metric("Delivery Status", status_label)
+        p2.metric("Delay Probability", f"{delay_prob * 100:.1f}%")
+
+        if clf_pred == 1:
+            p3.metric("Estimated Delay", f"{delay_hours:.2f} hrs")
+        else:
+            p3.metric("Estimated Delay", "—")
+
+        # ---------------- PROGRESS ----------------
+        st.write(f"**Delay Probability Indicator** — Risk: {risk}")
+        st.progress(float(np.clip(delay_prob, 0.0, 1.0)))
+
+        # ---------------- STATUS BANNER ----------------
+        if clf_pred == 1:
+            st.error(
+                f"! This shipment is likely **Delayed** by approximately "
+                f"**{delay_hours:.2f} hours**."
+            )
+        else:
+            if delay_prob > 0.3:
+                st.markdown(f"""
+    <div style="
+        background-color:#FFF3CD;
+        color:#1F2937;
+        padding:12px 16px;
+        border-radius:8px;
+        font-weight:600;
+    ">
+    ! Slight risk detected. If delayed, it may take around 
+    <b>{delay_hours:.2f} hrs</b>.
+    </div>
+    """, unsafe_allow_html=True)
+            else:
+                st.success(" This shipment is expected to be **On-Time**.")
+
+        st.divider()
+
+        # ---------------- INSIGHTS ----------------
+        st.subheader(" Key Insights")
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Risk Level", risk)
+        col2.metric("Peak Hour Impact", "High " if is_peak_hour else "Low ")
+        col3.metric("Weather Impact", "High "  if bad_weather_flag_api else "Low ")
+
+        st.divider()
+
+        # ---------------- WHY ----------------
+        st.subheader(" Why This Prediction?")
+
+        factors = []
+
+        if bad_weather_flag_api:
+            factors.append(" Bad weather increases delay risk")
+
+        if is_peak_hour:
+            factors.append(" Peak hour traffic slows delivery")
+
+        if distance_km > 300:
+            factors.append(" Long distance increases delay")
+
+        if cost_per_km < 2:
+            factors.append(" Lower cost efficiency may increase delay")
+
+        if vehicle_type in ["bike", "ev bike", "scooter"]:
+            factors.append(" Two-wheelers help reduce delay in traffic")
+
+        if delivery_mode == "standard":
+            factors.append(" Standard delivery is slower than express")
+
+        if region == "south":
+            factors.append(" Region has slightly higher delay patterns")
+
+        if factors:
+            for f in factors:
+                st.write(f"- {f}")
+        else:
+            st.success(" All conditions are optimal for on-time delivery")
+
+        st.divider()
+
+        # ---------------- SUMMARY ----------------
+        st.subheader(" Final Summary")
+
+        summary_text = f"""
+    **Delivery Status:** {status_label}  
+    **Delay Probability:** {delay_prob * 100:.1f}%  
+    """
+
+        if clf_pred == 1:
+            summary_text += f"**Estimated Delay:** {delay_hours:.2f} hrs"
+        else:
+            summary_text += "**Estimated Delay:** Not applicable (On-Time)"
+
+        st.markdown(summary_text)
+        # ---------------- REMEDIES ----------------
+        if clf_pred == 1:
+
+            st.divider()
+            st.subheader(" Suggested Actions to Reduce Delay")
+
+            remedies = []
+
+            if bad_weather_flag_api:
+                remedies.append("Use weather-resistant packaging and plan alternate routes")
+
+            if is_peak_hour:
+                remedies.append("Reschedule delivery to non-peak hours if possible")
+
+            if distance_km > 300:
+                remedies.append("Split shipment or use faster transport options (air/express lanes)")
+
+            if delivery_mode == "standard":
+                remedies.append("Upgrade to express delivery for faster transit")
+
+            if vehicle_type in ["bike", "ev bike", "scooter"]:
+                remedies.append("Use larger vehicles for long-distance or heavy deliveries")
+
+            if package_type == "fragile items":
+                remedies.append("Use protective packaging and prioritize handling")
+
+            if region in ["north", "east"]:
+                remedies.append("Monitor regional logistics delays and optimize routing")
+
+            # Display
+            for r in remedies:
+                st.write(f"• {r}")  
+                
+    else:
+        p1.metric("Delivery Status",   "—")
+        p2.metric("Delay Probability", "—")
+        p3.metric("Estimated Delay",   "—")
+
+        st.info("Fill in details and click Predict.")      
 
 st.divider()
 
-# ---------------------------------------------------
-# PREDICTION PANEL
-# ---------------------------------------------------
+# 👉 Show bulk section only when button clicked
+if st.session_state.get("show_bulk"):
+    # ---------------------------------------------------
+    # BULK PREDICTION (CSV UPLOAD)
+    # ---------------------------------------------------
+    if st.button("⬅ Back to Manual Prediction"):
+        st.session_state.show_bulk = False
+        st.rerun()
+    
+    st.subheader("Bulk Prediction (CSV Upload)")
+    st.markdown("### 📄 Sample CSV Format")
 
-st.subheader("Prediction Result")
+    sample_data = pd.DataFrame({
+        "delivery_partner": ["amazon logistics"],
+        "package_type": ["electronics"],
+        "vehicle_type": ["van"],
+        "delivery_mode": ["standard"],
+        "region": ["west"],
+        "weather_condition": ["clear"],
+        "distance_km": [120],
+        "package_weight_kg": [5],
+        "delivery_cost": [300],
+        "order_hour": [14],
+        "order_date": ["2024-06-15"]
+    })
 
-p1, p2, p3 = st.columns(3)
+    st.write(sample_data)
 
-if predict_button:
+    csv_sample = sample_data.to_csv(index=False).encode("utf-8")
 
-    # ---------------- CLASSIFICATION ----------------
-    clf_df     = build_clf_input()
-    clf_scaled = encode_scale(clf_df, clf_encoders, clf_scaler)
+    st.download_button(
+        label="⬇ Download Sample CSV",
+        data=csv_sample,
+        file_name="sample_bulk_input.csv",
+        mime="text/csv"
+    )
 
-    delay_prob   = float(clf_model.predict_proba(clf_scaled)[0][1])
-    clf_pred     = clf_model.predict(clf_scaled)[0]
-    status_label = "Delayed !" if clf_pred == 1 else "On-Time "
-    risk         = prob_to_risk(delay_prob)
+    st.info("Please upload CSV with correct format")
 
-    # ---------------- REGRESSION ----------------
-    reg_df     = build_reg_input()
-    reg_scaled = encode_scale(reg_df, reg_encoders, reg_scaler)
+    uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
 
-    delay_hours = float(max(reg_model.predict(reg_scaled)[0], 0.0))
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        st.write("Uploaded Data", df.head())
 
-    # ---------------- METRICS ----------------
-    p1.metric("Delivery Status", status_label)
-    p2.metric("Delay Probability", f"{delay_prob * 100:.1f}%")
+        # REQUIRED COLUMNS CHECK
+        required_cols = ["delivery_partner","package_type","vehicle_type",
+                        "delivery_mode","region","weather_condition",
+                        "distance_km","package_weight_kg",
+                        "delivery_cost","order_hour","order_date"]
 
-    if clf_pred == 1:
-        p3.metric("Estimated Delay", f"{delay_hours:.2f} hrs")
-    else:
-        p3.metric("Estimated Delay", "—")
-
-    # ---------------- PROGRESS ----------------
-    st.write(f"**Delay Probability Indicator** — Risk: {risk}")
-    st.progress(float(np.clip(delay_prob, 0.0, 1.0)))
-
-    # ---------------- STATUS BANNER ----------------
-    if clf_pred == 1:
-        st.error(
-            f"! This shipment is likely **Delayed** by approximately "
-            f"**{delay_hours:.2f} hours**."
-        )
-    else:
-        if delay_prob > 0.3:
-            st.markdown(f"""
-<div style="
-    background-color:#FFF3CD;
-    color:#1F2937;
-    padding:12px 16px;
-    border-radius:8px;
-    font-weight:600;
-">
-! Slight risk detected. If delayed, it may take around 
-<b>{delay_hours:.2f} hrs</b>.
-</div>
-""", unsafe_allow_html=True)
+        if not all(col in df.columns for col in required_cols):
+            st.error("CSV format incorrect. Please use sample format.")
         else:
-            st.success(" This shipment is expected to be **On-Time**.")
 
-    st.divider()
+            # FEATURE ENGINEERING
+            df["order_date"] = pd.to_datetime(df["order_date"])
+            df["order_dayofweek"] = df["order_date"].dt.weekday
+            df["is_weekend"] = (df["order_dayofweek"] >= 5).astype(int)
+            df["holiday_or_weekend_transit_flag"] = df["is_weekend"]
 
-    # ---------------- INSIGHTS ----------------
-    st.subheader(" Key Insights")
+            df["bad_weather_flag_api"] = df["weather_condition"].isin(
+                ["rainy","stormy","foggy"]
+            ).astype(int)
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Risk Level", risk)
-    col2.metric("Peak Hour Impact", "High " if is_peak_hour else "Low ")
-    col3.metric("Weather Impact", "High "  if bad_weather_flag_api else "Low ")
+            df["api_temperature"] = 28.0
+            df["api_humidity"] = 65.0
+            df["api_wind_speed"] = 10.0
 
-    st.divider()
+            # REG FEATURES
+            df["is_peak_hour"] = df["order_hour"].apply(
+                lambda x: 1 if (8<=x<=11 or 17<=x<=20) else 0
+            )
 
-    # ---------------- WHY ----------------
-    st.subheader(" Why This Prediction?")
+            df["distance_bucket"] = pd.cut(
+                df["distance_km"],
+                bins=[0,100,300,700,9999],
+                labels=[0,1,2,3]
+            ).astype(float).fillna(0).astype(int)
 
-    factors = []
+            df["cost_per_km"] = df["delivery_cost"]/(df["distance_km"]+1)
 
-    if bad_weather_flag_api:
-        factors.append(" Bad weather increases delay risk")
+            # ---------------- FIX: ALIGN FEATURES ----------------
+            clf_input = df.reindex(columns=CLF_FEATURES, fill_value=0)
+            reg_input = df.reindex(columns=REG_FEATURES, fill_value=0)
 
-    if is_peak_hour:
-        factors.append(" Peak hour traffic slows delivery")
+            # CLASSIFICATION
+            clf_scaled = encode_scale(clf_input, clf_encoders, clf_scaler)
 
-    if distance_km > 300:
-        factors.append(" Long distance increases delay")
+            df["delay_prediction"] = clf_model.predict(clf_scaled)
+            df["delay_probability"] = clf_model.predict_proba(clf_scaled)[:,1]
 
-    if cost_per_km < 2:
-        factors.append(" Lower cost efficiency may increase delay")
+            # REGRESSION
+            reg_scaled = encode_scale(reg_input, reg_encoders, reg_scaler)
 
-    if vehicle_type in ["bike", "ev bike", "scooter"]:
-        factors.append(" Two-wheelers help reduce delay in traffic")
+            df["delay_hours"] = reg_model.predict(reg_scaled)
 
-    if delivery_mode == "standard":
-        factors.append(" Standard delivery is slower than express")
+            # SHOW OUTPUT
+            st.write("Prediction Results", df)
 
-    if region == "south":
-        factors.append(" Region has slightly higher delay patterns")
-
-    if factors:
-        for f in factors:
-            st.write(f"- {f}")
-    else:
-        st.success(" All conditions are optimal for on-time delivery")
-
-    st.divider()
-
-    # ---------------- SUMMARY ----------------
-    st.subheader(" Final Summary")
-
-    summary_text = f"""
-**Delivery Status:** {status_label}  
-**Delay Probability:** {delay_prob * 100:.1f}%  
-"""
-
-    if clf_pred == 1:
-        summary_text += f"**Estimated Delay:** {delay_hours:.2f} hrs"
-    else:
-        summary_text += "**Estimated Delay:** Not applicable (On-Time)"
-
-    st.markdown(summary_text)
-
-else:
-    p1.metric("Delivery Status",   "—")
-    p2.metric("Delay Probability", "—")
-    p3.metric("Estimated Delay",   "—")
-
-    st.info("Fill in details and click Predict.")
+            # DOWNLOAD BUTTON
+            csv = df.to_csv(index=False).encode("utf-8")
+            st.download_button("Download Results", csv, "predictions.csv")   
