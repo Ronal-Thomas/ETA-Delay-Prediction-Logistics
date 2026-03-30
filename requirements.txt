@@ -1,7 +1,8 @@
-pandas
-numpy
-scikit-learn
-requests
-matplotlib
-seaborn
-jupyter
+streamlit==1.28.2
+pandas==1.5.3
+numpy==1.23.5
+scikit-learn==1.2.2
+lightgbm==3.3.5
+plotly==5.18.0
+joblib==1.2.0
+requests==2.33.0
