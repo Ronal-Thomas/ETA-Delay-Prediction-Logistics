@@ -5,6 +5,85 @@ import joblib
 import pickle
 import numpy as np
 from datetime import date
+import warnings
+warnings.filterwarnings("ignore")
+import requests
+
+
+def get_weather(city):
+    api_key = "4d80bee4da9b907635792d27e8575a75" 
+    url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
+
+    try:
+        response = requests.get(url)
+        data = response.json()
+        if response.status_code != 200 or "main" not in data:
+            return 28.0, 65.0, 10.0, "clear"
+        
+        temp = data["main"]["temp"]
+        humidity = data["main"]["humidity"]
+        wind = data["wind"]["speed"]
+        weather = data["weather"][0]["main"].lower()
+
+        return temp, humidity, wind, weather
+
+    except:
+        return 28.0, 65.0, 10.0, "clear"
+    
+def get_forecast_weather(city, target_date):
+    api_key = "4d80bee4da9b907635792d27e8575a75"
+    url = f"https://api.openweathermap.org/data/2.5/forecast?q={city}&appid={api_key}&units=metric"
+
+    try:
+        response = requests.get(url)
+        data = response.json()
+
+        forecasts = data["list"]
+
+        closest = None
+
+        for item in forecasts:
+            forecast_time = item["dt_txt"]
+            forecast_date = forecast_time.split(" ")[0]
+            forecast_hour = int(forecast_time.split(" ")[1].split(":")[0])
+
+            if forecast_date == str(target_date):
+                # pick closest to noon (12 PM)
+                if closest is None or abs(forecast_hour - 12) < abs(int(closest["dt_txt"].split(" ")[1].split(":")[0]) - 12):
+                    closest = item
+
+        if closest:
+            temp = closest["main"]["temp"]
+            humidity = closest["main"]["humidity"]
+            wind = closest["wind"]["speed"]
+            weather = closest["weather"][0]["main"].lower()
+
+            return temp, humidity, wind, weather
+
+        # fallback if date not found
+        return 28.0, 65.0, 10.0, "clear"
+
+    except:
+        return 28.0, 65.0, 10.0, "clear"
+    
+    
+def check_holiday(date):
+    api_key = "fII9EVHQHfGmAQdDdLJH9ClfA4yPvsfl"
+    url = f"https://calendarific.com/api/v2/holidays?api_key={api_key}&country=IN&year={date.year}&month={date.month}&day={date.day}"
+
+    try:
+        response = requests.get(url)
+        data = response.json()
+
+        holidays = data["response"]["holidays"]
+
+        if len(holidays) > 0:
+            return 1, holidays[0]["name"]
+        else:
+            return 0, None
+
+    except:
+        return 0, None
 
 # ---------------------------------------------------
 # PAGE CONFIG
@@ -203,15 +282,24 @@ delivery_mode = st.sidebar.selectbox(
     ["standard", "express", "same day", "two day"]
 )
 
-region = st.sidebar.selectbox(
-    "Region",
-    ["west", "central", "north", "east", "south"]
+
+mode = st.sidebar.radio(
+    "Weather Mode",
+    ["Manual", "Live (API)"]
 )
 
-weather_condition = st.sidebar.selectbox(
-    "Weather Condition",
-    ["clear", "stormy", "hot", "rainy", "cold", "foggy"]
+holiday_mode = st.sidebar.radio(
+    "Holiday Mode",
+    ["Manual", "Live (API)"]
 )
+
+if mode == "Manual":
+    region = st.sidebar.selectbox(
+        "Region",
+        ["north", "south", "east", "west"]
+    )
+
+
 
 distance_km = st.sidebar.number_input(
     "Distance (km)", min_value=1, max_value=5000, value=100
@@ -227,11 +315,113 @@ delivery_cost = st.sidebar.number_input(
     "Delivery Cost (₹)", min_value=1.0, max_value=10000.0, value=250.0, step=10.0
 )
 
-order_date = st.sidebar.date_input("Order Date", value=date.today())
+from datetime import timedelta
 
+today = date.today()
+max_date = today + timedelta(days=5)
+
+if mode == "Live (API)":
+    order_date = st.sidebar.date_input(
+        "Order Date",
+        value=today,
+        min_value=today,
+        max_value=max_date
+    )
+else:
+    order_date = st.sidebar.date_input(
+        "Order Date",
+        value=today
+    )
+    
 order_hour = st.sidebar.slider("Order Hour", 0, 23, 12)
 
+# ---------------- WEATHER HANDLING ----------------
+
+if mode == "Manual":
+    weather_condition = st.sidebar.selectbox(
+        "Weather Condition",
+        ["clear", "stormy", "hot", "rainy", "cold", "foggy"]
+    )
+
+    api_temperature = 28.0
+    api_humidity = 65.0
+    api_wind_speed = 10.0
+
+    bad_weather_flag_api = 1 if weather_condition in ["rainy", "stormy", "foggy"] else 0
+    
+elif mode == "Live (API)":
+    city = st.sidebar.selectbox(
+        "Select City",
+        ["Bangalore", "Delhi", "Mumbai", "Chennai", "Kochi"]
+    )
+
+    st.sidebar.selectbox(
+        "Region (Disabled in Live Mode)",
+        ["north", "south", "east", "west"],
+        index=1,
+        disabled=True
+    )
+
+    region = "south"
+
+    # 🔥 FIX: Weather logic INSIDE Live block
+    if order_date == date.today():
+        api_temperature, api_humidity, api_wind_speed, api_weather = get_weather(city)
+    else:
+        api_temperature, api_humidity, api_wind_speed, api_weather = get_forecast_weather(city, order_date)
+
+    # Convert API → model format
+    if api_weather in ["rain", "drizzle", "thunderstorm"]:
+        weather_condition = "rainy"
+    elif api_weather in ["fog", "mist"]:
+        weather_condition = "foggy"
+    elif api_temperature > 35:
+        weather_condition = "hot"
+    elif api_temperature < 15:
+        weather_condition = "cold"
+    else:
+        weather_condition = "clear"
+
+    bad_weather_flag_api = 1 if api_weather in ["rain", "drizzle", "thunderstorm", "fog", "mist"] else 0
+
+    # Display
+    st.sidebar.markdown("###  Live Weather")
+    st.sidebar.write(f"City: {city}")
+    st.sidebar.write(f"Condition: {weather_condition}")
+    st.sidebar.write(f"Temp: {api_temperature}°C")
+    st.sidebar.write(f"Humidity: {api_humidity}%")
+    st.sidebar.write(f"Wind Speed: {api_wind_speed} m/s")
+
+
+
+    
+# ---------------- HOLIDAY HANDLING ----------------
+
+if holiday_mode == "Manual":
+    holiday_or_weekend_transit_flag = 1 if st.sidebar.checkbox("If The Order Date is a Holiday choose this option") else 0
+
+
+elif holiday_mode == "Live (API)":
+    is_holiday, holiday_name = check_holiday(order_date)
+
+    is_weekend = 1 if order_date.weekday() >= 5 else 0
+
+    holiday_or_weekend_transit_flag = 1 if (is_holiday or is_weekend) else 0
+
+    st.sidebar.markdown("###  Holiday Info")
+
+    if is_holiday:
+        st.sidebar.success(f"Holiday: {holiday_name}")
+    elif is_weekend:
+        st.sidebar.info("Weekend")
+    else:
+        st.sidebar.write("No holiday")
+
+
+
+
 predict_button = st.sidebar.button(" Predict Delivery Status")
+
 
 # ---------------------------------------------------
 # DERIVED FEATURES
@@ -241,13 +431,7 @@ predict_button = st.sidebar.button(" Predict Delivery Status")
 # Classification derived features
 order_dayofweek                  = order_date.weekday()         # 0=Mon … 6=Sun
 is_weekend                       = 1 if order_dayofweek >= 5 else 0
-holiday_or_weekend_transit_flag  = is_weekend
-bad_weather_flag_api             = 1 if weather_condition in ["rainy", "stormy", "foggy"] else 0
 
-# Fixed API weather defaults
-api_temperature = 28.0
-api_humidity    = 65.0
-api_wind_speed  = 10.0
 
 # Regression derived features (from notebook Cell 5)
 is_peak_hour   = 1 if (8 <= order_hour <= 11 or 17 <= order_hour <= 20) else 0

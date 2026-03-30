@@ -1,7 +1,16 @@
-# Virtual Environment
+# Virtual environments (IMPORTANT)
+.venv/
 venv/
 env/
-.env/
+
+# Python site-packages (extra safety)
+Lib/
+Scripts/
+Include/
+
+# Ignore installed packages inside venv
+*.dist-info/
+*.egg-info/
 
 # Python cache
 __pycache__/
@@ -9,27 +18,24 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Jupyter Notebook checkpoints
-.ipynb_checkpoints/
-
-# Environment variables
-.env
-
-# VS Code settings
+# VS Code
 .vscode/
 
 # OS files
 .DS_Store
 Thumbs.db
 
-# Data files (optional if large)
+# Env variables
+.env
+
+# Data (optional)
 data/raw/
 data/interim/
 data/processed/
 
-# Model files
-
+# Models (optional depending on need)
 *.joblib
+*.pkl
 *.h5
 
 # Logs
