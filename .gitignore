@@ -1,0 +1,43 @@
+# Virtual environments (IMPORTANT)
+.venv/
+venv/
+env/
+
+# Python site-packages (extra safety)
+Lib/
+Scripts/
+Include/
+
+# Ignore installed packages inside venv
+*.dist-info/
+*.egg-info/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Env variables
+.env
+
+# Data (optional)
+data/raw/
+data/interim/
+data/processed/
+
+# Models (optional depending on need)
+*.joblib
+*.pkl
+*.h5
+
+# Logs
+logs/
+*.log
